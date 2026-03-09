@@ -30,57 +30,6 @@ float cameraMaxY = 20.0f;
 float cameraMinZ = -20.0f;
 float cameraMaxZ = 60.0f;
 
-// ================= SISTEM DE PARTICULE PENTRU ZAPADA =================
-#define MAX_SNOWFLAKES 1500 // Numarul de fulgi de zapada
-
-struct Snowflake {
-    float x, y, z;
-    float speed;
-    float drift; // Pentru a simula bataia vantului
-};
-
-Snowflake snow[MAX_SNOWFLAKES];
-
-// Initializarea fulgilor in pozitii aleatoare
-void initSnow() {
-    for (int i = 0; i < MAX_SNOWFLAKES; i++) {
-        snow[i].x = ((float)rand() / RAND_MAX) * 50.0f - 25.0f; // intre -25 si 25
-        snow[i].y = ((float)rand() / RAND_MAX) * 25.0f + 5.0f;  // cad de sus
-        snow[i].z = ((float)rand() / RAND_MAX) * 50.0f - 25.0f; // intre -25 si 25
-        snow[i].speed = ((float)rand() / RAND_MAX) * 0.05f + 0.02f; // viteza diferita per fulg
-        snow[i].drift = ((float)rand() / RAND_MAX) * 0.02f - 0.01f;
-    }
-}
-
-// Desenarea zapezii pe ecran
-void drawSnow() {
-    glDisable(GL_LIGHTING); // Zapada e alba pur, nu vrem umbre pe ea
-    glColor3f(1.0f, 1.0f, 1.0f);
-    glPointSize(2.5f); // Dimensiunea unui fulg
-
-    glBegin(GL_POINTS);
-    for (int i = 0; i < MAX_SNOWFLAKES; i++) {
-        glVertex3f(snow[i].x, snow[i].y, snow[i].z);
-    }
-    glEnd();
-}
-
-// Miscarea zapezii in jos (apelata in timer)
-void updateSnow() {
-    for (int i = 0; i < MAX_SNOWFLAKES; i++) {
-        snow[i].y -= snow[i].speed;
-        snow[i].x += snow[i].drift + sin(snow[i].y) * 0.005f; // Un mic efect de miscare stanga-dreapta
-
-        // Daca fulgul atinge pamantul, il readucem sus
-        if (snow[i].y < 0.0f) {
-            snow[i].y = 25.0f;
-            snow[i].x = ((float)rand() / RAND_MAX) * 50.0f - 25.0f;
-            snow[i].z = ((float)rand() / RAND_MAX) * 50.0f - 25.0f;
-        }
-    }
-}
-// =====================================================================
-
 void initGL() {
     glClearColor(0.5f, 0.7f, 1.0f, 1.0f);
     glShadeModel(GL_SMOOTH);
@@ -92,30 +41,128 @@ void initGL() {
 
     glEnable(GL_COLOR_MATERIAL);
     glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-
-    initSnow(); // Gneram zapada la pornire
 }
 
-void drawMountain(float x, float z, float width, float height, float depth) {
+void drawSea()
+{
+    glDisable(GL_LIGHTING);
+
     glBegin(GL_TRIANGLES);
 
-    // FATA STANGA (Luminata de "soare")
-    glColor3f(0.5f, 0.5f, 0.5f); // Baza stanga (gri mediu)
-    glVertex3f(x - width, 0, z);
-    glColor3f(0.6f, 0.6f, 0.6f); // Baza din fata (varful scos in afara spre camera)
-    glVertex3f(x, 0, z + depth);
-    glColor3f(1.0f, 1.0f, 1.0f); // Varf alb (zapada luminata)
-    glVertex3f(x, height, z);
+    for (float x = -25; x < 25; x += 1.0f)
+    {
+        for (float z = -25; z < -5; z += 1.0f) // ocean starts far away
+        {
+            float y1 = sin(x * 0.3 + glutGet(GLUT_ELAPSED_TIME) * 0.002) * 0.2f;
+            float y2 = sin((x + 1) * 0.3 + glutGet(GLUT_ELAPSED_TIME) * 0.002) * 0.2f;
+            float y3 = sin(z * 0.3 + glutGet(GLUT_ELAPSED_TIME) * 0.002) * 0.2f;
 
-    // FATA DREAPTA (Aflata in umbra)
-    glColor3f(0.4f, 0.4f, 0.4f); // Baza din fata (aceeasi cu cea de sus)
-    glVertex3f(x, 0, z + depth);
-    glColor3f(0.3f, 0.3f, 0.3f); // Baza dreapta (gri intunecat)
-    glVertex3f(x + width, 0, z);
-    glColor3f(0.75f, 0.75f, 0.8f); // Varf alb-albastrui (zapada in umbra)
-    glVertex3f(x, height, z);
+            glColor3f(0.0f, 0.4f, 0.8f);
+
+            glVertex3f(x, y1, z);
+            glVertex3f(x + 1, y2, z);
+            glVertex3f(x, y3, z + 1);
+
+            glVertex3f(x + 1, y2, z);
+            glVertex3f(x + 1, y1, z + 1);
+            glVertex3f(x, y3, z + 1);
+        }
+    }
 
     glEnd();
+
+    glEnable(GL_LIGHTING);
+}
+
+void drawHorizon()
+{
+    glDisable(GL_LIGHTING);
+
+    glBegin(GL_QUADS);
+
+    glColor3f(0.0f, 0.5f, 0.9f);
+
+    glVertex3f(-25, 0, -25);
+    glVertex3f(25, 0, -25);
+    glVertex3f(25, 0, -10);
+    glVertex3f(-25, 0, -10);
+
+    glEnd();
+
+    glEnable(GL_LIGHTING);
+}
+
+void drawTree(float x, float z)
+{
+    glPushMatrix();
+    glTranslatef(x, 0, z);
+
+    // trunk
+    glColor3f(0.4f, 0.25f, 0.1f);
+    glPushMatrix();
+    glTranslatef(0, 1.5f, 0);
+    glScalef(0.5f, 3.0f, 0.5f);
+    glutSolidCube(1);
+    glPopMatrix();
+
+    // leaves
+    glColor3f(0.1f, 0.7f, 0.1f);
+    glPushMatrix();
+    glTranslatef(0, 4.0f, 0);
+    glutSolidSphere(1.5, 20, 20);
+    glPopMatrix();
+
+    glPopMatrix();
+}
+
+void drawFlower(float x, float z)
+{
+    glPushMatrix();
+    glTranslatef(x, 0.2f, z);
+
+    // stem
+    glColor3f(0.0f, 0.7f, 0.0f);
+    glBegin(GL_LINES);
+    glVertex3f(0, 0, 0);
+    glVertex3f(0, 1, 0);
+    glEnd();
+
+    // center
+    glPushMatrix();
+    glTranslatef(0, 1, 0);
+    glColor3f(1.0f, 0.8f, 0.0f);
+    glutSolidSphere(0.1, 10, 10);
+    glPopMatrix();
+
+    // petals
+    glColor3f(1.0f, 0.4f, 0.7f);
+
+    for (int i = 0; i < 6; i++)
+    {
+        float angle = i * 60 * 3.14159 / 180;
+
+        glPushMatrix();
+        glTranslatef(cos(angle) * 0.2, 1, sin(angle) * 0.2);
+        glutSolidSphere(0.1, 10, 10);
+        glPopMatrix();
+    }
+
+    glPopMatrix();
+}
+
+void drawSun()
+{
+    glDisable(GL_LIGHTING);
+
+    glPushMatrix();
+    glTranslatef(15, 20, -20);
+
+    glColor3f(1.0f, 0.9f, 0.0f);
+    glutSolidSphere(2.0, 30, 30);
+
+    glPopMatrix();
+
+    glEnable(GL_LIGHTING);
 }
 
 void display(void) {
@@ -134,78 +181,63 @@ void display(void) {
 
     // ================= CERUL =================
     glBegin(GL_QUADS);
-    glColor3f(0.6f, 0.8f, 1.0f);
+
+    // bottom horizon
+    glColor3f(0.6f, 0.85f, 1.0f);
     glVertex3f(-25, 0, -25);
     glVertex3f(25, 0, -25);
-    glColor3f(0.1f, 0.3f, 0.8f);
+
+    // upper sky
+    glColor3f(0.2f, 0.6f, 1.0f);
     glVertex3f(25, 25, -25);
     glVertex3f(-25, 25, -25);
 
-    glColor3f(0.6f, 0.8f, 1.0f);
-    glVertex3f(-25, 0, 25);
-    glVertex3f(-25, 0, -25);
-    glColor3f(0.1f, 0.3f, 0.8f);
-    glVertex3f(-25, 25, -25);
-    glVertex3f(-25, 25, 25);
-
-    glColor3f(0.6f, 0.8f, 1.0f);
-    glVertex3f(25, 0, -25);
-    glVertex3f(25, 0, 25);
-    glColor3f(0.1f, 0.3f, 0.8f);
-    glVertex3f(25, 25, 25);
-    glVertex3f(25, 25, -25);
     glEnd();
 
-    // ================= MUNTII DE PE PERETELE DIN SPATE =================
-     // Muntele din stanga
-    drawMountain(-14.0f, -24.0f, 12.0f, 14.0f, 3.0f);
-    // Muntele din dreapta 
-    drawMountain(12.0f, -23.0f, 14.0f, 15.0f, 4.0f);
-    // Muntele central 
-    drawMountain(0.0f, -22.0f, 16.0f, 20.0f, 7.0f);
+	//SEA and HORIZON
+    drawSea();
+    drawHorizon();
+    glBegin(GL_QUADS);
+    glColor3f(0.0f, 0.45f, 0.9f);
+    glVertex3f(-25, 0, -25);
+    glVertex3f(25, 0, -25);
+    glVertex3f(25, 0, -10);
+    glVertex3f(-25, 0, -10);
+    glEnd();
 
+    //SAND
+    glBegin(GL_QUADS);
+    glColor3f(0.95f, 0.9f, 0.6f);
 
-    // ================= MUNTII DE PE PERETELE DIN STANGA =================
-    glPushMatrix(); // Salvam coordonatele actuale ale lumii
+    glVertex3f(-25, 0, -10);
+    glVertex3f(25, 0, -10);
+    glVertex3f(25, 0, 0);
+    glVertex3f(-25, 0, 0);
 
-    // Rotim lumea cu 90 de grade in jurul axei Y (axa verticala)
-    // Astfel, axa Z (peretele din spate) devine axa X (peretele din stanga)
-    glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
+    glEnd();
 
-    // Acum folosim aceeasi functie drawMountain.
-    // Datorita rotatiei, cand noi ii spunem sa deseneze la Z = -24.5, 
-    // OpenGL va desena de fapt pe axa X la -24.5 (adica fix pe peretele din stanga!)
-
-    // Munte perete din stanga
-    drawMountain(15.0f, -24.8f, 13.0f, 16.0f, 3.0f);
-
-    // Munte situat la mijlocul peretelui din stanga
-    drawMountain(0.0f, -24.5f, 15.0f, 19.0f, 4.0f);
-
-    // Munte stang ppe peretele din stanga
-    drawMountain(-12.0f, -24.0f, 10.0f, 12.0f, 6.0f);
-
-    glPopMatrix();
 
     // ================= PAMANT =================
     glBegin(GL_QUADS);
     glColor3f(0.3f, 0.2f, 0.1f);
-    glVertex3f(-25, -0.1f, -25);
+
+    glVertex3f(-25, -0.1f, 0);
     glVertex3f(-25, -0.1f, 25);
     glVertex3f(25, -0.1f, 25);
-    glVertex3f(25, -0.1f, -25);
+    glVertex3f(25, -0.1f, 0);
+
     glEnd();
 
     // ================= IARBA/TEREN DENIVELAT =================
     glBegin(GL_TRIANGLES);
     for (float x = -25; x < 25; x += 0.5) {
-        for (float z = -25; z < 25; z += 0.5) {
+        for (float z = 0; z < 25; z += 0.5) {
             float y1 = sin(x) * cos(z) * 0.4f;
             float y2 = sin(x + 0.5) * cos(z) * 0.4f;
             float y3 = sin(x) * cos(z + 0.5) * 0.4f;
             float y4 = sin(x + 0.5) * cos(z + 0.5) * 0.4f;
 
-            glColor3f(0.1f, 0.6f + (y1 * 0.2f), 0.2f); // Iarba ceva mai rece/brumata
+            glColor3f(0.2f + y1 * 0.05f, 0.8f, 0.2f); // Iarba ceva mai rece/brumata
 
             glVertex3f(x, y1, z);
             glVertex3f(x + 0.5, y2, z);
@@ -218,20 +250,33 @@ void display(void) {
     }
     glEnd();
 
-    // Apelam functia care deseneaza fulgii de zapada
-    drawSnow();
+    //TREES
+    drawTree(-10, -5);
+    drawTree(5, 6);
+    drawTree(-6, 10);
+    drawTree(12, -3);
+
+    //FLOWERS
+    drawFlower(-5, 3);
+    drawFlower(-2, 7);
+    drawFlower(3, -4);
+    drawFlower(8, 2);
+    drawFlower(-8, -3);
+
+    //SUN
+    drawSun();
 
     glEnable(GL_LIGHTING);
 
     // ================= BILELE =================
     glPushMatrix();
-    glTranslatef(7, width + 1.5, 4);
+    glTranslatef(4, width + 1.5, 4);
     glColor3f(1, 1, 0); // Galben
     glutSolidSphere(1.9f, 50, 50);
     glPopMatrix();
 
     glPushMatrix();
-    glTranslatef(7, width + 1, 9);
+    glTranslatef(2, width + 1, 9);
     glColor3f(1, 1, 1); // Alb
     glutSolidSphere(1.9f, 50, 50);
     glPopMatrix();
@@ -283,7 +328,6 @@ void special_keyboard(int key, int x, int y) {
 }
 
 void timer(int v) {
-    updateSnow(); // Actualizam pozitia zapezii de fiecare data cand se redeseneaza cadrul
     glutPostRedisplay();
     glutTimerFunc(16, timer, 0); // Aproximativ 60 cadre pe secunda
 }
@@ -307,7 +351,7 @@ int main(int argc, char** argv) {
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
     glutInitWindowSize(windowWidth, windowHeight);
     glutInitWindowPosition(100, 100);
-    glutCreateWindow("Peisaj de Iarna cu Bile Saltarete");
+    glutCreateWindow("Peisaj de primavara cu Bile Saltarete");
 
     initGL();
 
