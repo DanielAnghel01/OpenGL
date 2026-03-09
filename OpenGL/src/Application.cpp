@@ -153,15 +153,43 @@ void drawFlower(float x, float z)
 void drawSun()
 {
     glDisable(GL_LIGHTING);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    float sunX = 15;
+    float sunY = 20;
+    float sunZ = -20;
 
     glPushMatrix();
-    glTranslatef(15, 20, -20);
+    glTranslatef(sunX, sunY, sunZ);
 
+    // rays
+    glColor4f(1.0f, 0.9f, 0.2f, 0.4f);
+
+    int rays = 40;
+    float radius = 4.0f;
+
+    glBegin(GL_TRIANGLES);
+
+    for (int i = 0; i < rays; i++)
+    {
+        float angle = i * 2 * 3.14159 / rays;
+        float nextAngle = (i + 1) * 2 * 3.14159 / rays;
+
+        glVertex3f(0, 0, 0);
+        glVertex3f(cos(angle) * radius, sin(angle) * radius, 0);
+        glVertex3f(cos(nextAngle) * radius, sin(nextAngle) * radius, 0);
+    }
+
+    glEnd();
+
+    // sun core
     glColor3f(1.0f, 0.9f, 0.0f);
-    glutSolidSphere(2.0, 30, 30);
+    glutSolidSphere(2.5, 30, 30);
 
     glPopMatrix();
 
+    glDisable(GL_BLEND);
     glEnable(GL_LIGHTING);
 }
 
