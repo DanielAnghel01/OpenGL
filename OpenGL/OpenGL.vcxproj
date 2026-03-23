@@ -136,6 +136,10 @@
     <ClInclude Include="stb_image.h" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="..\..\..\..\..\..\..\Downloads\bark.jpg" />
+    <Image Include="..\..\..\..\..\..\..\Downloads\leaves.jpg" />
+    <Image Include="..\..\..\..\..\..\..\Downloads\sand.jpg" />
+    <Image Include="..\..\..\..\..\..\..\Downloads\water.jpg" />
     <Image Include="src\grass.jpg" />
     <Image Include="src\sky.jpg" />
   </ItemGroup>

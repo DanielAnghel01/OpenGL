@@ -31,5 +31,17 @@
     <Image Include="src\sky.jpg">
       <Filter>Resource Files</Filter>
     </Image>
+    <Image Include="..\..\..\..\..\..\..\Downloads\leaves.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="..\..\..\..\..\..\..\Downloads\bark.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="..\..\..\..\..\..\..\Downloads\water.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="..\..\..\..\..\..\..\Downloads\sand.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>
