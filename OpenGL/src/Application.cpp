@@ -2,6 +2,8 @@
 #include <freeglut.h>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -28,6 +30,21 @@ GLuint texBark = 0;
 GLuint texLeaves = 0;
 GLuint texHorizon = 0;
 
+
+struct RandomMover
+{
+    float x, z;
+    float angle;
+    float speed;
+    int changeTimer;
+};
+
+RandomMover randomMovers[5];
+const int randomMoverCount = 5;
+
+float autoCarAngle = 0.0f;
+float autoCarRadiusX = 110.0f;
+float autoCarRadiusZ = 75.0f;
 // ---------------------------
 // Camera
 // ---------------------------
@@ -131,6 +148,16 @@ void InitBuildings();
 void DrawCar();
 void UpdateCar();
 
+void InitRandomMovers();
+void DrawRandomMover(float x, float z);
+void DrawRandomMovers();
+void UpdateRandomMovers();
+bool RandomMoverCollides(float x, float z);
+
+void DrawAutoCar();
+void UpdateAutoCar();
+void DrawTexturedBox(float w, float h, float d, float uRepeat = 1.0f, float vRepeat = 1.0f);
+
 // ---------------------------
 // Texture loader (JPG/PNG)
 // ---------------------------
@@ -171,6 +198,7 @@ GLuint LoadTexture(const char* path, bool repeat = true)
     stbi_image_free(data);
     return textureID;
 }
+
 
 void LoadAllTextures()
 {
@@ -226,6 +254,44 @@ void ComputeTerrainNormal(float x, float z, float& nx, float& ny, float& nz)
         nz = 0.0f;
     }
 }
+void DrawAutoCar()
+{
+    float x = cosf(autoCarAngle * PI / 180.0f) * autoCarRadiusX;
+    float z = sinf(autoCarAngle * PI / 180.0f) * autoCarRadiusZ;
+
+    float dx = -sinf(autoCarAngle * PI / 180.0f) * autoCarRadiusX;
+    float dz = cosf(autoCarAngle * PI / 180.0f) * autoCarRadiusZ;
+    float angle = atan2f(dx, -dz) * 180.0f / PI;
+
+    glPushMatrix();
+    glTranslatef(x, 0.12f, z);
+    glRotatef(angle, 0, 1, 0);
+
+    glDisable(GL_TEXTURE_2D);
+
+    glColor3f(0.1f, 0.8f, 0.1f);
+    glPushMatrix();
+    DrawTexturedBox(7.0f, 2.0f, 12.0f);
+    glPopMatrix();
+
+    glColor3f(0.7f, 0.9f, 1.0f);
+    glPushMatrix();
+    glTranslatef(0.0f, 2.0f, -1.0f);
+    DrawTexturedBox(5.0f, 1.8f, 5.0f);
+    glPopMatrix();
+
+    glEnable(GL_TEXTURE_2D);
+    glColor3f(1, 1, 1);
+
+    glPopMatrix();
+}
+
+void UpdateAutoCar()
+{
+    autoCarAngle += 0.6f;
+    if (autoCarAngle >= 360.0f)
+        autoCarAngle -= 360.0f;
+}
 
 void AddBuildingData(float x, float z, float w, float h, float d)
 {
@@ -240,7 +306,7 @@ void AddBuildingData(float x, float z, float w, float h, float d)
     }
 }
 // Box anchored at ground level (y starts from 0)
-void DrawTexturedBox(float w, float h, float d, float uRepeat = 1.0f, float vRepeat = 1.0f)
+void DrawTexturedBox(float w, float h, float d, float uRepeat, float vRepeat)
 {
     float x = w * 0.5f;
     float z = d * 0.5f;
@@ -290,6 +356,17 @@ void DrawTexturedBox(float w, float h, float d, float uRepeat = 1.0f, float vRep
     glTexCoord2f(0, vRepeat);         glVertex3f(-x, 0, z);
 
     glEnd();
+}
+void InitRandomMovers()
+{
+    for (int i = 0; i < randomMoverCount; i++)
+    {
+        randomMovers[i].x = -50.0f + i * 20.0f;
+        randomMovers[i].z = -30.0f + i * 15.0f;
+        randomMovers[i].angle = (float)(rand() % 360);
+        randomMovers[i].speed = 0.15f + (rand() % 10) * 0.01f;
+        randomMovers[i].changeTimer = 50 + rand() % 100;
+    }
 }
 
 // ---------------------------
@@ -1134,6 +1211,8 @@ void Display()
             RenderShadowFromLight(lp);
         }
     }
+    DrawRandomMovers();
+    DrawAutoCar();
 
     buildingCount = 0;
 
@@ -1201,6 +1280,83 @@ void InitBuildings()
     AddBuildingData(285.0f, 95.0f, 18.0f, 24.0f, 16.0f);
 }
 
+void DrawRandomMover(float x, float z)
+{
+    glPushMatrix();
+    glTranslatef(x, 0.2f, z);
+
+    glDisable(GL_TEXTURE_2D);
+
+    // body
+    glColor3f(0.2f, 0.2f, 0.9f);
+    glPushMatrix();
+    DrawTexturedBox(1.2f, 2.5f, 1.2f);
+    glPopMatrix();
+
+    // head
+    glColor3f(1.0f, 0.8f, 0.6f);
+    glPushMatrix();
+    glTranslatef(0.0f, 2.5f, 0.0f);
+    glutSolidSphere(0.5, 12, 12);
+    glPopMatrix();
+
+    glEnable(GL_TEXTURE_2D);
+    glColor3f(1, 1, 1);
+
+    glPopMatrix();
+}
+
+void DrawRandomMovers()
+{
+    for (int i = 0; i < randomMoverCount; i++)
+    {
+        DrawRandomMover(randomMovers[i].x, randomMovers[i].z);
+    }
+}
+
+bool RandomMoverCollides(float x, float z)
+{
+    for (int i = 0; i < buildingCount; i++)
+    {
+        if (CheckAABBCollision(x, z, 1.2f, 1.2f,
+            buildings[i].x, buildings[i].z,
+            buildings[i].w, buildings[i].d))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void UpdateRandomMovers()
+{
+    for (int i = 0; i < randomMoverCount; i++)
+    {
+        randomMovers[i].changeTimer--;
+
+        if (randomMovers[i].changeTimer <= 0)
+        {
+            randomMovers[i].angle = (float)(rand() % 360);
+            randomMovers[i].changeTimer = 50 + rand() % 100;
+        }
+
+        float rad = randomMovers[i].angle * PI / 180.0f;
+        float nextX = randomMovers[i].x + sinf(rad) * randomMovers[i].speed;
+        float nextZ = randomMovers[i].z - cosf(rad) * randomMovers[i].speed;
+
+        // keep inside map and avoid buildings
+        if (nextX < -350 || nextX > 350 || nextZ < -350 || nextZ > 350 ||
+            RandomMoverCollides(nextX, nextZ))
+        {
+            randomMovers[i].angle = (float)(rand() % 360);
+            continue;
+        }
+
+        randomMovers[i].x = nextX;
+        randomMovers[i].z = nextZ;
+    }
+}
+
 void Reshape(int w, int h)
 {
     if (h == 0) h = 1;
@@ -1234,6 +1390,8 @@ void Timer(int value)
 {
     UpdateCamera();
     UpdateCar();
+    UpdateRandomMovers();
+    UpdateAutoCar();
     glutPostRedisplay();
     glutTimerFunc(16, Timer, 0);
 }
@@ -1283,6 +1441,7 @@ void Init()
     glShadeModel(GL_SMOOTH);
     glClearColor(0.55f, 0.78f, 0.95f, 1.0f);
     InitBuildings();
+    InitRandomMovers();
 
     LoadAllTextures();
 }
@@ -1306,6 +1465,8 @@ int main(int argc, char** argv)
     glutSpecialFunc(SpecialDown);
     glutSpecialUpFunc(SpecialUp);
     glutTimerFunc(16, Timer, 0);
+
+    srand((unsigned int)time(0));
 
     glutMainLoop();
     return 0;
