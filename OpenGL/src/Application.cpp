@@ -37,10 +37,58 @@ float camZ = 180.0f;
 float yaw = 0.0f;
 float pitch = -5.0f;
 
+float camDistance = 28.0f;
+float camHeight = 10.0f;
+float camYawOffset = 0.0f;
+float camPitchOffset = 15.0f;
+
 bool keys[256] = { false };
 bool specialKeys[256] = { false };
 
-//Functions
+// ---------------------------
+// Lighting / Shadows
+// ---------------------------
+bool enableLighting = true;
+bool enableShadows = true;
+
+struct StreetLight
+{
+    float x, y, z;
+};
+
+StreetLight streetLights[] =
+{
+    {-60.0f, 8.0f, -40.0f},
+    { 60.0f, 8.0f, -40.0f},
+    {-60.0f, 8.0f,  40.0f},
+    { 60.0f, 8.0f,  40.0f}
+};
+
+const int streetLightCount = sizeof(streetLights) / sizeof(streetLights[0]);
+float mainLightPos[4] = { 80.0f, 120.0f, 60.0f, 1.0f };
+// ---------------------------
+// Buildings for collisions
+// ---------------------------
+struct BuildingData
+{
+    float x, z;
+    float w, h, d;
+};
+
+BuildingData buildings[128];
+int buildingCount = 0;
+// ---------------------------
+// Controllable car
+// ---------------------------
+float carX = 0.0f;
+float carZ = 110.0f;
+float carY = 0.12f;
+float carAngle = 180.0f;
+
+float carWidth = 8.0f;
+float carDepth = 14.0f;
+float carSpeed = 0.0f;
+// Functions
 void DrawGround();
 void DrawSkyCylinder();
 void DrawTerrain();
@@ -64,6 +112,24 @@ void DrawFlowerPatch(float cx, float cz, int count, float radius);
 
 void DrawParkDecorations();
 void DrawStaticObjects();
+void DrawShadowCasters();
+
+void DrawStreetLight(float x, float y, float z);
+void DrawStreetLights();
+
+void SetupLighting();
+void BuildShadowMatrix(float shadowMat[16], const float groundPlane[4], const float lightPos[4]);
+void RenderShadowFromLight(const float lightPos[4]);
+void ComputeTerrainNormal(float x, float z, float& nx, float& ny, float& nz);
+
+bool CheckAABBCollision(float x1, float z1, float w1, float d1,
+    float x2, float z2, float w2, float d2);
+bool CarCollidesWithBuildings(float testX, float testZ);
+void AddBuildingData(float x, float z, float w, float h, float d);
+void InitBuildings();
+
+void DrawCar();
+void UpdateCar();
 
 // ---------------------------
 // Texture loader (JPG/PNG)
@@ -133,6 +199,46 @@ float TerrainHeight(float x, float z)
     return 2.2f * sinf(x * 0.10f) * cosf(z * 0.12f);
 }
 
+void ComputeTerrainNormal(float x, float z, float& nx, float& ny, float& nz)
+{
+    float eps = 0.2f;
+
+    float hL = TerrainHeight(x - eps, z);
+    float hR = TerrainHeight(x + eps, z);
+    float hD = TerrainHeight(x, z - eps);
+    float hU = TerrainHeight(x, z + eps);
+
+    nx = hL - hR;
+    ny = 2.0f * eps;
+    nz = hD - hU;
+
+    float len = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (len > 0.0001f)
+    {
+        nx /= len;
+        ny /= len;
+        nz /= len;
+    }
+    else
+    {
+        nx = 0.0f;
+        ny = 1.0f;
+        nz = 0.0f;
+    }
+}
+
+void AddBuildingData(float x, float z, float w, float h, float d)
+{
+    if (buildingCount < 128)
+    {
+        buildings[buildingCount].x = x;
+        buildings[buildingCount].z = z;
+        buildings[buildingCount].w = w;
+        buildings[buildingCount].h = h;
+        buildings[buildingCount].d = d;
+        buildingCount++;
+    }
+}
 // Box anchored at ground level (y starts from 0)
 void DrawTexturedBox(float w, float h, float d, float uRepeat = 1.0f, float vRepeat = 1.0f)
 {
@@ -142,40 +248,46 @@ void DrawTexturedBox(float w, float h, float d, float uRepeat = 1.0f, float vRep
     glBegin(GL_QUADS);
 
     // Front
-    glTexCoord2f(0, 0);        glVertex3f(-x, 0, z);
-    glTexCoord2f(uRepeat, 0);  glVertex3f(x, 0, z);
-    glTexCoord2f(uRepeat, vRepeat); glVertex3f(x, h, z);
-    glTexCoord2f(0, vRepeat);  glVertex3f(-x, h, z);
+    glNormal3f(0.0f, 0.0f, 1.0f);
+    glTexCoord2f(0, 0);               glVertex3f(-x, 0, z);
+    glTexCoord2f(uRepeat, 0);         glVertex3f(x, 0, z);
+    glTexCoord2f(uRepeat, vRepeat);   glVertex3f(x, h, z);
+    glTexCoord2f(0, vRepeat);         glVertex3f(-x, h, z);
 
     // Back
-    glTexCoord2f(0, 0);        glVertex3f(x, 0, -z);
-    glTexCoord2f(uRepeat, 0);  glVertex3f(-x, 0, -z);
-    glTexCoord2f(uRepeat, vRepeat); glVertex3f(-x, h, -z);
-    glTexCoord2f(0, vRepeat);  glVertex3f(x, h, -z);
+    glNormal3f(0.0f, 0.0f, -1.0f);
+    glTexCoord2f(0, 0);               glVertex3f(x, 0, -z);
+    glTexCoord2f(uRepeat, 0);         glVertex3f(-x, 0, -z);
+    glTexCoord2f(uRepeat, vRepeat);   glVertex3f(-x, h, -z);
+    glTexCoord2f(0, vRepeat);         glVertex3f(x, h, -z);
 
     // Left
-    glTexCoord2f(0, 0);        glVertex3f(-x, 0, -z);
-    glTexCoord2f(uRepeat, 0);  glVertex3f(-x, 0, z);
-    glTexCoord2f(uRepeat, vRepeat); glVertex3f(-x, h, z);
-    glTexCoord2f(0, vRepeat);  glVertex3f(-x, h, -z);
+    glNormal3f(-1.0f, 0.0f, 0.0f);
+    glTexCoord2f(0, 0);               glVertex3f(-x, 0, -z);
+    glTexCoord2f(uRepeat, 0);         glVertex3f(-x, 0, z);
+    glTexCoord2f(uRepeat, vRepeat);   glVertex3f(-x, h, z);
+    glTexCoord2f(0, vRepeat);         glVertex3f(-x, h, -z);
 
     // Right
-    glTexCoord2f(0, 0);        glVertex3f(x, 0, z);
-    glTexCoord2f(uRepeat, 0);  glVertex3f(x, 0, -z);
-    glTexCoord2f(uRepeat, vRepeat); glVertex3f(x, h, -z);
-    glTexCoord2f(0, vRepeat);  glVertex3f(x, h, z);
+    glNormal3f(1.0f, 0.0f, 0.0f);
+    glTexCoord2f(0, 0);               glVertex3f(x, 0, z);
+    glTexCoord2f(uRepeat, 0);         glVertex3f(x, 0, -z);
+    glTexCoord2f(uRepeat, vRepeat);   glVertex3f(x, h, -z);
+    glTexCoord2f(0, vRepeat);         glVertex3f(x, h, z);
 
     // Top
-    glTexCoord2f(0, 0);        glVertex3f(-x, h, z);
-    glTexCoord2f(uRepeat, 0);  glVertex3f(x, h, z);
-    glTexCoord2f(uRepeat, vRepeat); glVertex3f(x, h, -z);
-    glTexCoord2f(0, vRepeat);  glVertex3f(-x, h, -z);
+    glNormal3f(0.0f, 1.0f, 0.0f);
+    glTexCoord2f(0, 0);               glVertex3f(-x, h, z);
+    glTexCoord2f(uRepeat, 0);         glVertex3f(x, h, z);
+    glTexCoord2f(uRepeat, vRepeat);   glVertex3f(x, h, -z);
+    glTexCoord2f(0, vRepeat);         glVertex3f(-x, h, -z);
 
     // Bottom
-    glTexCoord2f(0, 0);        glVertex3f(-x, 0, -z);
-    glTexCoord2f(uRepeat, 0);  glVertex3f(x, 0, -z);
-    glTexCoord2f(uRepeat, vRepeat); glVertex3f(x, 0, z);
-    glTexCoord2f(0, vRepeat);  glVertex3f(-x, 0, z);
+    glNormal3f(0.0f, -1.0f, 0.0f);
+    glTexCoord2f(0, 0);               glVertex3f(-x, 0, -z);
+    glTexCoord2f(uRepeat, 0);         glVertex3f(x, 0, -z);
+    glTexCoord2f(uRepeat, vRepeat);   glVertex3f(x, 0, z);
+    glTexCoord2f(0, vRepeat);         glVertex3f(-x, 0, z);
 
     glEnd();
 }
@@ -192,15 +304,18 @@ void DrawGround()
     float repeat = 30.0f;
 
     glBegin(GL_QUADS);
-    glTexCoord2f(0, 0);         glVertex3f(-size, 0.0f, -size);
-    glTexCoord2f(repeat, 0);    glVertex3f(size, 0.0f, -size);
-    glTexCoord2f(repeat, repeat); glVertex3f(size, 0.0f, size);
-    glTexCoord2f(0, repeat);    glVertex3f(-size, 0.0f, size);
+    glNormal3f(0.0f, 1.0f, 0.0f);
+    glTexCoord2f(0, 0);               glVertex3f(-size, 0.0f, -size);
+    glTexCoord2f(repeat, 0);          glVertex3f(size, 0.0f, -size);
+    glTexCoord2f(repeat, repeat);     glVertex3f(size, 0.0f, size);
+    glTexCoord2f(0, repeat);          glVertex3f(-size, 0.0f, size);
     glEnd();
 }
 
 void DrawSkyCylinder()
 {
+    glDisable(GL_LIGHTING);
+
     const float radius = 430.0f;
     const float height = 140.0f;
     const int segments = 72;
@@ -231,6 +346,9 @@ void DrawSkyCylinder()
     glTexCoord2f(1, 1); glVertex3f(s, height, s);
     glTexCoord2f(0, 1); glVertex3f(-s, height, s);
     glEnd();
+
+    if (enableLighting)
+        glEnable(GL_LIGHTING);
 }
 
 void DrawTerrain()
@@ -255,11 +373,19 @@ void DrawTerrain()
             float y0 = 0.35f + TerrainHeight(x, z0);
             float y1 = 0.35f + TerrainHeight(x, z1);
 
+            float nx0, ny0, nz0;
+            float nx1, ny1, nz1;
+            ComputeTerrainNormal(x, z0, nx0, ny0, nz0);
+            ComputeTerrainNormal(x, z1, nx1, ny1, nz1);
+
             float u = (float)ix / N * texRepeat;
             float v0 = (float)iz / N * texRepeat;
             float v1 = (float)(iz + 1) / N * texRepeat;
 
+            glNormal3f(nx0, ny0, nz0);
             glTexCoord2f(u, v0); glVertex3f(x, y0, z0);
+
+            glNormal3f(nx1, ny1, nz1);
             glTexCoord2f(u, v1); glVertex3f(x, y1, z1);
         }
         glEnd();
@@ -290,9 +416,11 @@ void DrawRoad()
 
         float u = (float)i / segments * 12.0f;
 
+        glNormal3f(0.0f, 1.0f, 0.0f);
         glTexCoord2f(1.0f, u);
         glVertex3f(outerRX * c, y, outerRZ * s);
 
+        glNormal3f(0.0f, 1.0f, 0.0f);
         glTexCoord2f(0.0f, u);
         glVertex3f(innerRX * c, y, innerRZ * s);
     }
@@ -304,6 +432,8 @@ void DrawRoad()
 // ---------------------------
 void DrawBuilding(float x, float z, float w, float h, float d)
 {
+    AddBuildingData(x, z, w, h, d);
+
     glPushMatrix();
     glTranslatef(x, 0.0f, z);
 
@@ -313,28 +443,31 @@ void DrawBuilding(float x, float z, float w, float h, float d)
     // Simple roof
     glDisable(GL_TEXTURE_2D);
     glColor3f(0.25f, 0.1f, 0.1f);
-    glBegin(GL_TRIANGLES);
 
+    glBegin(GL_TRIANGLES);
     // Front
+    glNormal3f(0.0f, 0.7f, 0.7f);
     glVertex3f(-w / 2, h, d / 2);
     glVertex3f(w / 2, h, d / 2);
     glVertex3f(0, h + 5, d / 2);
 
     // Back
+    glNormal3f(0.0f, 0.7f, -0.7f);
     glVertex3f(w / 2, h, -d / 2);
     glVertex3f(-w / 2, h, -d / 2);
     glVertex3f(0, h + 5, -d / 2);
-
     glEnd();
 
     glBegin(GL_QUADS);
     // Left roof side
+    glNormal3f(-0.7f, 0.7f, 0.0f);
     glVertex3f(-w / 2, h, -d / 2);
     glVertex3f(-w / 2, h, d / 2);
     glVertex3f(0, h + 5, d / 2);
     glVertex3f(0, h + 5, -d / 2);
 
     // Right roof side
+    glNormal3f(0.7f, 0.7f, 0.0f);
     glVertex3f(w / 2, h, d / 2);
     glVertex3f(w / 2, h, -d / 2);
     glVertex3f(0, h + 5, -d / 2);
@@ -378,9 +511,83 @@ void DrawTree(float x, float z)
 // ---------------------------
 void ApplyCamera()
 {
-    glRotatef(-pitch, 1, 0, 0);
-    glRotatef(-yaw, 0, 1, 0);
-    glTranslatef(-camX, -camY, -camZ);
+    float totalYaw = carAngle + camYawOffset;
+    float yawRad = totalYaw * PI / 180.0f;
+    float pitchRad = camPitchOffset * PI / 180.0f;
+
+    float targetX = carX;
+    float targetY = carY + 3.0f;
+    float targetZ = carZ;
+
+    float camOffsetX = sinf(yawRad) * cosf(pitchRad) * camDistance;
+    float camOffsetY = sinf(pitchRad) * camDistance + camHeight;
+    float camOffsetZ = -cosf(yawRad) * cosf(pitchRad) * camDistance;
+
+    float eyeX = targetX - camOffsetX;
+    float eyeY = targetY + camOffsetY;
+    float eyeZ = targetZ - camOffsetZ;
+
+    gluLookAt(
+        eyeX, eyeY, eyeZ,
+        targetX, targetY, targetZ,
+        0.0f, 1.0f, 0.0f
+    );
+}
+
+void SetupLighting()
+{
+    if (!enableLighting)
+    {
+        glDisable(GL_LIGHTING);
+        return;
+    }
+
+    glEnable(GL_LIGHTING);
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_COLOR_MATERIAL);
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+    GLfloat globalAmbient[] = { 0.22f, 0.22f, 0.22f, 1.0f };
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, globalAmbient);
+
+    // Main light
+    glEnable(GL_LIGHT0);
+    GLfloat light0Pos[] = { mainLightPos[0], mainLightPos[1], mainLightPos[2], mainLightPos[3] };
+    GLfloat light0Diffuse[] = { 0.95f, 0.95f, 0.90f, 1.0f };
+    GLfloat light0Specular[] = { 0.75f, 0.75f, 0.70f, 1.0f };
+    GLfloat light0Ambient[] = { 0.10f, 0.10f, 0.10f, 1.0f };
+
+    glLightfv(GL_LIGHT0, GL_POSITION, light0Pos);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, light0Diffuse);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, light0Specular);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, light0Ambient);
+
+    // Disable extra lights first
+    glDisable(GL_LIGHT1);
+    glDisable(GL_LIGHT2);
+    glDisable(GL_LIGHT3);
+    glDisable(GL_LIGHT4);
+
+    // Streetlights
+    for (int i = 0; i < streetLightCount && i < 4; i++)
+    {
+        GLenum lid = GL_LIGHT1 + i;
+        glEnable(lid);
+
+        GLfloat pos[] = { streetLights[i].x + 1.7f, streetLights[i].y - 0.7f, streetLights[i].z, 1.0f };
+        GLfloat diff[] = { 1.0f, 0.92f, 0.70f, 1.0f };
+        GLfloat spec[] = { 0.8f, 0.75f, 0.55f, 1.0f };
+        GLfloat amb[] = { 0.02f, 0.02f, 0.01f, 1.0f };
+
+        glLightfv(lid, GL_POSITION, pos);
+        glLightfv(lid, GL_DIFFUSE, diff);
+        glLightfv(lid, GL_SPECULAR, spec);
+        glLightfv(lid, GL_AMBIENT, amb);
+
+        glLightf(lid, GL_CONSTANT_ATTENUATION, 1.0f);
+        glLightf(lid, GL_LINEAR_ATTENUATION, 0.025f);
+        glLightf(lid, GL_QUADRATIC_ATTENUATION, 0.004f);
+    }
 }
 
 void DrawRoadWithSidewalk(float x, float z, float w, float d, float rotDeg)
@@ -397,6 +604,7 @@ void DrawRoadWithSidewalk(float x, float z, float w, float d, float rotDeg)
     float sd = d + 8.0f;
 
     glBegin(GL_QUADS);
+    glNormal3f(0.0f, 1.0f, 0.0f);
     glVertex3f(-sw * 0.5f, 0.10f, -sd * 0.5f);
     glVertex3f(sw * 0.5f, 0.10f, -sd * 0.5f);
     glVertex3f(sw * 0.5f, 0.10f, sd * 0.5f);
@@ -412,6 +620,7 @@ void DrawRoadWithSidewalk(float x, float z, float w, float d, float rotDeg)
     float vRep = d / 20.0f;
 
     glBegin(GL_QUADS);
+    glNormal3f(0.0f, 1.0f, 0.0f);
     glTexCoord2f(0, 0);         glVertex3f(-w * 0.5f, 0.12f, -d * 0.5f);
     glTexCoord2f(uRep, 0);      glVertex3f(w * 0.5f, 0.12f, -d * 0.5f);
     glTexCoord2f(uRep, vRep);   glVertex3f(w * 0.5f, 0.12f, d * 0.5f);
@@ -427,6 +636,7 @@ void DrawRoadWithSidewalk(float x, float z, float w, float d, float rotDeg)
         for (float sx = -w * 0.35f; sx < w * 0.35f; sx += 16.0f)
         {
             glBegin(GL_QUADS);
+            glNormal3f(0.0f, 1.0f, 0.0f);
             glVertex3f(sx - 3.0f, 0.13f, -0.22f);
             glVertex3f(sx + 3.0f, 0.13f, -0.22f);
             glVertex3f(sx + 3.0f, 0.13f, 0.22f);
@@ -439,6 +649,7 @@ void DrawRoadWithSidewalk(float x, float z, float w, float d, float rotDeg)
         for (float sz = -d * 0.35f; sz < d * 0.35f; sz += 16.0f)
         {
             glBegin(GL_QUADS);
+            glNormal3f(0.0f, 1.0f, 0.0f);
             glVertex3f(-0.22f, 0.13f, sz - 3.0f);
             glVertex3f(0.22f, 0.13f, sz - 3.0f);
             glVertex3f(0.22f, 0.13f, sz + 3.0f);
@@ -581,10 +792,9 @@ void DrawFlower(float x, float z, float scale)
 
     // Petals
     glColor3f(0.95f, 0.25f, 0.55f);
-
-    glPushMatrix(); glTranslatef(0.18f, 0.66f, 0.0f);  DrawTexturedBox(0.16f, 0.16f, 0.16f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.18f, 0.66f, 0.0f);   DrawTexturedBox(0.16f, 0.16f, 0.16f); glPopMatrix();
     glPushMatrix(); glTranslatef(-0.18f, 0.66f, 0.0f);  DrawTexturedBox(0.16f, 0.16f, 0.16f); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.0f, 0.66f, 0.18f);  DrawTexturedBox(0.16f, 0.16f, 0.16f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.66f, 0.18f);   DrawTexturedBox(0.16f, 0.16f, 0.16f); glPopMatrix();
     glPushMatrix(); glTranslatef(0.0f, 0.66f, -0.18f);  DrawTexturedBox(0.16f, 0.16f, 0.16f); glPopMatrix();
 
     glEnable(GL_TEXTURE_2D);
@@ -640,11 +850,254 @@ void DrawParkDecorations()
     DrawFlowerPatch(22.0f, -20.0f, 13, 10.0f);
 }
 
+void DrawStreetLight(float x, float y, float z)
+{
+    glPushMatrix();
+    glTranslatef(x, 0.0f, z);
+
+    glDisable(GL_TEXTURE_2D);
+
+    // Pole
+    glColor3f(0.18f, 0.18f, 0.18f);
+    glPushMatrix();
+    DrawTexturedBox(0.5f, y, 0.5f);
+    glPopMatrix();
+
+    // Arm
+    glPushMatrix();
+    glTranslatef(0.9f, y - 0.5f, 0.0f);
+    DrawTexturedBox(1.8f, 0.18f, 0.18f);
+    glPopMatrix();
+
+    // Lamp bulb
+    glPushMatrix();
+    glTranslatef(1.7f, y - 0.7f, 0.0f);
+    glColor3f(1.0f, 0.95f, 0.65f);
+    glutSolidSphere(0.35, 12, 12);
+    glPopMatrix();
+
+    glEnable(GL_TEXTURE_2D);
+    glColor3f(1, 1, 1);
+    glPopMatrix();
+}
+
+void DrawStreetLights()
+{
+    for (int i = 0; i < streetLightCount; i++)
+    {
+        DrawStreetLight(streetLights[i].x, streetLights[i].y, streetLights[i].z);
+    }
+}
+
 void DrawStaticObjects()
 {
     DrawCityBuildings();
     DrawExtraTrees();
     DrawParkDecorations();
+    DrawStreetLights();
+}
+
+void DrawShadowCasters()
+{
+    DrawCityBuildings();
+    DrawExtraTrees();
+    DrawParkDecorations();
+    DrawStreetLights();
+}
+
+void DrawCar()
+{
+    glPushMatrix();
+    glTranslatef(carX, carY, carZ);
+    glRotatef(carAngle, 0, 1, 0);
+
+    glDisable(GL_TEXTURE_2D);
+
+    // Body
+    glColor3f(0.85f, 0.1f, 0.1f);
+    glPushMatrix();
+    DrawTexturedBox(8.0f, 2.2f, 14.0f);
+    glPopMatrix();
+
+    // Cabin
+    glColor3f(0.75f, 0.85f, 0.95f);
+    glPushMatrix();
+    glTranslatef(0.0f, 2.2f, -1.0f);
+    DrawTexturedBox(6.0f, 2.0f, 6.0f);
+    glPopMatrix();
+
+    // Wheels
+    glColor3f(0.1f, 0.1f, 0.1f);
+
+    glPushMatrix(); glTranslatef(-3.5f, 0.0f, -4.5f); DrawTexturedBox(1.2f, 1.2f, 2.0f); glPopMatrix();
+    glPushMatrix(); glTranslatef(3.5f, 0.0f, -4.5f); DrawTexturedBox(1.2f, 1.2f, 2.0f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-3.5f, 0.0f, 4.5f); DrawTexturedBox(1.2f, 1.2f, 2.0f); glPopMatrix();
+    glPushMatrix(); glTranslatef(3.5f, 0.0f, 4.5f); DrawTexturedBox(1.2f, 1.2f, 2.0f); glPopMatrix();
+
+    glEnable(GL_TEXTURE_2D);
+    glColor3f(1, 1, 1);
+
+    glPopMatrix();
+}
+
+void UpdateCar()
+{
+    float turnSpeed = 2.0f;
+    float accel = 0.08f;
+    float maxSpeed = 1.2f;
+    float friction = 0.04f;
+    float brakeForce = 0.12f;
+
+    if (keys['w'] || keys['W']) carSpeed += accel;
+    if (keys['s'] || keys['S']) carSpeed -= accel;
+
+    if (carSpeed > maxSpeed) carSpeed = maxSpeed;
+    if (carSpeed < -maxSpeed * 0.6f) carSpeed = -maxSpeed * 0.6f;
+
+    // Turn only when moving
+    if (fabs(carSpeed) > 0.01f)
+    {
+        if (keys['a'] || keys['A'])
+            carAngle -= turnSpeed * (carSpeed >= 0.0f ? 1.0f : -1.0f);
+
+        if (keys['d'] || keys['D'])
+            carAngle += turnSpeed * (carSpeed >= 0.0f ? 1.0f : -1.0f);
+    }
+
+    // Friction
+    if (!(keys['w'] || keys['W']) && !(keys['s'] || keys['S']))
+    {
+        if (carSpeed > 0.0f)
+        {
+            carSpeed -= friction;
+            if (carSpeed < 0.0f) carSpeed = 0.0f;
+        }
+        else if (carSpeed < 0.0f)
+        {
+            carSpeed += friction;
+            if (carSpeed > 0.0f) carSpeed = 0.0f;
+        }
+    }
+
+    if (keys[' ']) // Space = brake
+    {
+        if (carSpeed > 0.0f)
+        {
+            carSpeed -= brakeForce;
+            if (carSpeed < 0.0f) carSpeed = 0.0f;
+        }
+        else if (carSpeed < 0.0f)
+        {
+            carSpeed += brakeForce;
+            if (carSpeed > 0.0f) carSpeed = 0.0f;
+        }
+    }
+
+    float rad = carAngle * PI / 180.0f;
+    float nextX = carX + sinf(rad) * carSpeed;
+    float nextZ = carZ - cosf(rad) * carSpeed;
+
+    if (!CarCollidesWithBuildings(nextX, nextZ))
+    {
+        carX = nextX;
+        carZ = nextZ;
+    }
+    else
+    {
+        carSpeed = 0.0f;
+    }
+}
+
+void BuildShadowMatrix(float shadowMat[16], const float groundPlane[4], const float lightPos[4])
+{
+    float dot =
+        groundPlane[0] * lightPos[0] +
+        groundPlane[1] * lightPos[1] +
+        groundPlane[2] * lightPos[2] +
+        groundPlane[3] * lightPos[3];
+
+    shadowMat[0] = dot - lightPos[0] * groundPlane[0];
+    shadowMat[4] = 0.0f - lightPos[0] * groundPlane[1];
+    shadowMat[8] = 0.0f - lightPos[0] * groundPlane[2];
+    shadowMat[12] = 0.0f - lightPos[0] * groundPlane[3];
+
+    shadowMat[1] = 0.0f - lightPos[1] * groundPlane[0];
+    shadowMat[5] = dot - lightPos[1] * groundPlane[1];
+    shadowMat[9] = 0.0f - lightPos[1] * groundPlane[2];
+    shadowMat[13] = 0.0f - lightPos[1] * groundPlane[3];
+
+    shadowMat[2] = 0.0f - lightPos[2] * groundPlane[0];
+    shadowMat[6] = 0.0f - lightPos[2] * groundPlane[1];
+    shadowMat[10] = dot - lightPos[2] * groundPlane[2];
+    shadowMat[14] = 0.0f - lightPos[2] * groundPlane[3];
+
+    shadowMat[3] = 0.0f - lightPos[3] * groundPlane[0];
+    shadowMat[7] = 0.0f - lightPos[3] * groundPlane[1];
+    shadowMat[11] = 0.0f - lightPos[3] * groundPlane[2];
+    shadowMat[15] = dot - lightPos[3] * groundPlane[3];
+}
+
+bool CheckAABBCollision(float x1, float z1, float w1, float d1,
+    float x2, float z2, float w2, float d2)
+{
+    float left1 = x1 - w1 * 0.5f;
+    float right1 = x1 + w1 * 0.5f;
+    float front1 = z1 + d1 * 0.5f;
+    float back1 = z1 - d1 * 0.5f;
+
+    float left2 = x2 - w2 * 0.5f;
+    float right2 = x2 + w2 * 0.5f;
+    float front2 = z2 + d2 * 0.5f;
+    float back2 = z2 - d2 * 0.5f;
+
+    if (right1 < left2) return false;
+    if (left1 > right2) return false;
+    if (front1 < back2) return false;
+    if (back1 > front2) return false;
+
+    return true;
+}
+
+bool CarCollidesWithBuildings(float testX, float testZ)
+{
+    for (int i = 0; i < buildingCount; i++)
+    {
+        if (CheckAABBCollision(
+            testX, testZ, carWidth, carDepth,
+            buildings[i].x, buildings[i].z, buildings[i].w, buildings[i].d))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void RenderShadowFromLight(const float lightPos[4])
+{
+    float groundPlane[4] = { 0.0f, 1.0f, 0.0f, -0.05f };
+    float shadowMat[16];
+    BuildShadowMatrix(shadowMat, groundPlane, lightPos);
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glColor4f(0.0f, 0.0f, 0.0f, 0.28f);
+
+    glPushMatrix();
+    glMultMatrixf(shadowMat);
+    DrawShadowCasters();
+    glPopMatrix();
+
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+
+    if (enableLighting)
+        glEnable(GL_LIGHTING);
+    glEnable(GL_TEXTURE_2D);
+    glColor3f(1, 1, 1);
 }
 
 void Display()
@@ -653,6 +1106,7 @@ void Display()
     glLoadIdentity();
 
     ApplyCamera();
+    SetupLighting();
 
     DrawSkyCylinder();
     DrawGround();
@@ -661,9 +1115,90 @@ void Display()
     DrawRoad();       // main oval circuit
     DrawCityRoads();  // extra city roads
 
+    void DrawCar();
+    void UpdateCar();
+
+    if (enableShadows)
+    {
+        RenderShadowFromLight(mainLightPos);
+
+        for (int i = 0; i < streetLightCount; i++)
+        {
+            float lp[4] =
+            {
+                streetLights[i].x + 1.7f,
+                streetLights[i].y - 0.7f,
+                streetLights[i].z,
+                1.0f
+            };
+            RenderShadowFromLight(lp);
+        }
+    }
+
+    buildingCount = 0;
+
     DrawStaticObjects();
 
+    DrawCar();
+
     glutSwapBuffers();
+}
+
+void InitBuildings()
+{
+    buildingCount = 0;
+
+    // Border rows
+    for (int i = 0; i < 9; i++)
+    {
+        float x = -300.0f + i * 75.0f;
+        float w = 16.0f + (i % 4) * 4.0f;
+        float h = 18.0f + (i % 5) * 6.0f;
+        float d = 14.0f + (i % 3) * 5.0f;
+        AddBuildingData(x, -280.0f, w, h, d);
+    }
+
+    for (int i = 0; i < 9; i++)
+    {
+        float x = -300.0f + i * 75.0f;
+        float w = 16.0f + (i % 4) * 4.0f;
+        float h = 18.0f + (i % 5) * 6.0f;
+        float d = 14.0f + (i % 3) * 5.0f;
+        AddBuildingData(x, 280.0f, w, h, d);
+    }
+
+    for (int i = 0; i < 6; i++)
+    {
+        float z = -200.0f + i * 80.0f;
+        float w = 14.0f + (i % 3) * 5.0f;
+        float h = 20.0f + (i % 4) * 7.0f;
+        float d = 16.0f + (i % 4) * 4.0f;
+        AddBuildingData(-340.0f, z, w, h, d);
+    }
+
+    for (int i = 0; i < 6; i++)
+    {
+        float z = -200.0f + i * 80.0f;
+        float w = 14.0f + (i % 3) * 5.0f;
+        float h = 20.0f + (i % 4) * 7.0f;
+        float d = 16.0f + (i % 4) * 4.0f;
+        AddBuildingData(340.0f, z, w, h, d);
+    }
+
+    AddBuildingData(-240.0f, -210.0f, 24.0f, 40.0f, 18.0f);
+    AddBuildingData(-180.0f, -210.0f, 20.0f, 34.0f, 18.0f);
+    AddBuildingData(180.0f, -210.0f, 22.0f, 38.0f, 18.0f);
+    AddBuildingData(240.0f, -210.0f, 26.0f, 42.0f, 20.0f);
+
+    AddBuildingData(-240.0f, 210.0f, 24.0f, 36.0f, 18.0f);
+    AddBuildingData(-180.0f, 210.0f, 18.0f, 30.0f, 16.0f);
+    AddBuildingData(180.0f, 210.0f, 22.0f, 40.0f, 18.0f);
+    AddBuildingData(240.0f, 210.0f, 26.0f, 34.0f, 20.0f);
+
+    AddBuildingData(-285.0f, -95.0f, 20.0f, 26.0f, 16.0f);
+    AddBuildingData(-285.0f, 95.0f, 18.0f, 28.0f, 16.0f);
+    AddBuildingData(285.0f, -95.0f, 22.0f, 32.0f, 18.0f);
+    AddBuildingData(285.0f, 95.0f, 18.0f, 24.0f, 16.0f);
 }
 
 void Reshape(int w, int h)
@@ -686,52 +1221,19 @@ void Reshape(int w, int h)
 // ---------------------------
 void UpdateCamera()
 {
-    float rad = yaw * PI / 180.0f;
-    float speed = 1.6f;
-    float strafeSpeed = 1.4f;
-    float verticalSpeed = 1.2f;
+    if (specialKeys[GLUT_KEY_LEFT])  camYawOffset -= 2.0f;
+    if (specialKeys[GLUT_KEY_RIGHT]) camYawOffset += 2.0f;
+    if (specialKeys[GLUT_KEY_UP])    camPitchOffset += 1.0f;
+    if (specialKeys[GLUT_KEY_DOWN])  camPitchOffset -= 1.0f;
 
-    // Forward / backward
-    if (keys['w'] || keys['W'])
-    {
-        camX += sinf(rad) * speed;
-        camZ -= cosf(rad) * speed;
-    }
-    if (keys['s'] || keys['S'])
-    {
-        camX -= sinf(rad) * speed;
-        camZ += cosf(rad) * speed;
-    }
-
-    // Strafe
-    if (keys['a'] || keys['A'])
-    {
-        camX -= cosf(rad) * strafeSpeed;
-        camZ -= sinf(rad) * strafeSpeed;
-    }
-    if (keys['d'] || keys['D'])
-    {
-        camX += cosf(rad) * strafeSpeed;
-        camZ += sinf(rad) * strafeSpeed;
-    }
-
-    // Up / down
-    if (keys['q'] || keys['Q']) camY += verticalSpeed;
-    if (keys['e'] || keys['E']) camY -= verticalSpeed;
-
-    // Rotation
-    if (specialKeys[GLUT_KEY_LEFT])  yaw -= 1.5f;
-    if (specialKeys[GLUT_KEY_RIGHT]) yaw += 1.5f;
-    if (specialKeys[GLUT_KEY_UP])    pitch += 1.0f;
-    if (specialKeys[GLUT_KEY_DOWN])  pitch -= 1.0f;
-
-    if (pitch > 89.0f)  pitch = 89.0f;
-    if (pitch < -89.0f) pitch = -89.0f;
+    if (camPitchOffset > 45.0f) camPitchOffset = 45.0f;
+    if (camPitchOffset < 5.0f)  camPitchOffset = 5.0f;
 }
 
 void Timer(int value)
 {
     UpdateCamera();
+    UpdateCar();
     glutPostRedisplay();
     glutTimerFunc(16, Timer, 0);
 }
@@ -745,6 +1247,12 @@ void KeyboardDown(unsigned char key, int x, int y)
 
     if (key == 27) // ESC
         exit(0);
+
+    if (key == 'l' || key == 'L')
+        enableLighting = !enableLighting;
+
+    if (key == 'k' || key == 'K')
+        enableShadows = !enableShadows;
 }
 
 void KeyboardUp(unsigned char key, int x, int y)
@@ -773,8 +1281,8 @@ void Init()
     glEnable(GL_TEXTURE_2D);
 
     glShadeModel(GL_SMOOTH);
-
     glClearColor(0.55f, 0.78f, 0.95f, 1.0f);
+    InitBuildings();
 
     LoadAllTextures();
 }
@@ -787,7 +1295,7 @@ int main(int argc, char** argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(1280, 720);
-    glutCreateWindow("OpenGL Project");
+    glutCreateWindow("OpenGL Project - P3");
 
     Init();
 
